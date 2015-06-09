@@ -3,7 +3,7 @@
 archive files"""
 
 import itertools
-from multiprocessing import Queue, JoinableQueue, Process, cpu_count
+from multiprocessing import Queue, Process, cpu_count
 import subprocess
 import argparse
 from collections import namedtuple
@@ -38,7 +38,7 @@ atexit.register(close_devnull)
 class CrackProducer(object):
     """"""
 
-    def __init__(self, cmd: ArchiveInfo, tasks: JoinableQueue,
+    def __init__(self, cmd: ArchiveInfo, tasks: Queue,
                  results: Queue, consumers, filename):
         self._cmd = cmd
         self._tasks = tasks
@@ -62,22 +62,30 @@ class CrackProducer(object):
     def filename(self):
         return self._filename
 
+    @staticmethod
+    def _save_status(stat: dict, status_file):
+        status_file.seek(0)
+        json.dump(stat, status_file)
+
     def end_crack(self):
         # Tell consumers to stop
         for i in self._consumers:
             self._tasks.put(None)
 
+        # Wait for all of the tasks to finish
         for c in self._consumers:
             c.join()
-
-        # Wait for all of the tasks to finish
-        # self._tasks.join()
 
         # Check the final results in the queue
         while not self._results.empty():
             result = self._results.get()
             if result is not False:
                 print('result {0}'.format(result.password))
+                with open(self.status_file, 'w') as status_file:
+                    self._save_status({'password': result.password},
+                                      status_file)
+                                       
+                    
 
 
 class PasswordBruteForcer(CrackProducer):
@@ -86,7 +94,7 @@ class PasswordBruteForcer(CrackProducer):
     default_chars = "0123456789" + \
                     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-    def __init__(self, cmd: ArchiveInfo, tasks: JoinableQueue, results: Queue,
+    def __init__(self, cmd: ArchiveInfo, tasks: Queue, results: Queue,
                  consumers, filename: str, chars=default_chars, limit=8):
         super().__init__(cmd, tasks, results, consumers, filename)
         self.passgen = self.password_generator(chars, limit)
@@ -127,17 +135,12 @@ class PasswordBruteForcer(CrackProducer):
 class FileProducer(CrackProducer):
     """Reads passwords from a file"""
 
-    def __init__(self, cmd: ArchiveInfo, tasks: JoinableQueue, results: Queue,
+    def __init__(self, cmd: ArchiveInfo, tasks: Queue, results: Queue,
                  consumers, filename: str, wordlist: str):
         super().__init__(cmd, tasks, results, consumers, filename)
         self.wordlist = wordlist
         self.status_file = filename + "_status.json"
         self.min_line_set = set()
-
-    @staticmethod
-    def _save_status(stat: dict, status_file):
-        status_file.seek(0)
-        json.dump(stat, status_file)
 
     def run(self):
         """Start the password cracking"""
@@ -148,7 +151,7 @@ class FileProducer(CrackProducer):
         if os.path.exists(self.status_file):
             with open(self.status_file, 'r') as status:
                 s = json.load(status)
-                if "password" in s:
+                if "password" in s and len(s["password"]) > 0:
                     print("Password is {0}".format(s["password"]))
                     return
                 if "current_line" in s:
