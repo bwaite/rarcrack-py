@@ -67,8 +67,11 @@ class CrackProducer(object):
         for i in self._consumers:
             self._tasks.put(None)
 
+        for c in self._consumers:
+            c.join()
+
         # Wait for all of the tasks to finish
-        self._tasks.join()
+        # self._tasks.join()
 
         # Check the final results in the queue
         while not self._results.empty():
@@ -212,11 +215,11 @@ class Consumer(Process):
         while True:
             next_task = self.task_queue.get()
             if next_task is None:
-                self.task_queue.task_done()
+                #self.task_queue.task_done()
                 break
 
             answer = next_task()
-            self.task_queue.task_done()
+            #self.task_queue.task_done()
 
             if answer.result is not False:
                 self.result_queue.put(answer)
@@ -274,7 +277,7 @@ def main():
     if args.procs:
         num_consumers = args.procs
 
-    tasks = JoinableQueue(num_consumers * 10)
+    tasks = Queue(num_consumers * 10)
     results = Queue()
 
     consumers = [Consumer(tasks, results) for i in range(num_consumers)]
